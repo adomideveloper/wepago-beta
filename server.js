@@ -1,19 +1,12 @@
-// Importar las dependencias necesarias
 const express = require('express');
-const bodyParser = require('body-parser');
 const Pusher = require('pusher');
 const cors = require('cors');
+require('dotenv').config();
 
-// Crear una instancia de la aplicación Express
 const app = express();
+app.use(cors());
+app.use(express.json());
 
-// Configurar middlewares
-app.use(cors()); // Habilitar Cross-Origin Resource Sharing para permitir peticiones desde el frontend
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
-
-// Configurar el cliente de Pusher usando variables de entorno para mayor seguridad
-// Estas variables se configurarán en el panel de Vercel.
 const pusher = new Pusher({
   appId: process.env.PUSHER_APP_ID,
   key: process.env.PUSHER_KEY,
@@ -22,80 +15,44 @@ const pusher = new Pusher({
   useTLS: true
 });
 
-// Definir el puerto en el que correrá el servidor
-const PORT = process.env.PORT || 3000;
-
-// === ENDPOINTS DE LA API ===
-
-/**
- * Endpoint para que la app de COMERCIO envíe un nuevo cobro.
- * Recibe: { userId, amount, merchantName, chargeId }
- * Dispara un evento 'new-charge' al canal del usuario específico (ej: 'user-E1000').
- */
+// Endpoint para que la app de comercios envíe un nuevo cobro
 app.post('/trigger-charge', (req, res) => {
-  const { userId, amount, merchantName, chargeId } = req.body;
+    const { userId, amount, merchantName, chargeId, merchantId } = req.body;
+    const userChannel = `user-${userId}`;
+    const event = 'new-charge';
+    const payload = { 
+        amount, 
+        merchantName, 
+        id: chargeId, 
+        merchantId 
+    };
 
-  if (!userId || !amount || !merchantName || !chargeId) {
-    return res.status(400).send('Faltan datos requeridos: userId, amount, merchantName, chargeId.');
-  }
-
-  const payload = {
-    id: chargeId,
-    merchantName: merchantName,
-    amount: amount,
-  };
-
-  // El canal es específico para cada usuario.
-  const userChannel = `user-${userId}`;
-
-  console.log(`Disparando evento 'new-charge' al canal '${userChannel}' con payload:`, payload);
-
-  // Disparar el evento usando Pusher
-  pusher.trigger(userChannel, 'new-charge', payload)
-    .then(() => {
-      res.status(200).send('Cobro enviado al usuario exitosamente.');
-    })
-    .catch(error => {
-      console.error('Error al disparar evento de Pusher:', error);
-      res.status(500).send('Error interno al procesar el cobro.');
-    });
+    pusher.trigger(userChannel, event, payload)
+        .then(() => res.status(200).send('Cobro enviado al usuario'))
+        .catch(error => {
+            console.error('Error enviando a Pusher:', error);
+            res.status(500).send('Error enviando el cobro');
+        });
 });
 
-/**
- * Endpoint para que la app de USUARIO autorice un pago.
- * Recibe: { chargeId, merchantId }
- * Dispara un evento 'payment-authorized' al canal del comercio específico (ej: 'commerce-SBRD7805').
- */
+// Endpoint para que la app de usuarios autorice un pago
 app.post('/authorize-payment', (req, res) => {
-  const { chargeId, merchantId } = req.body;
-
-  if (!chargeId || !merchantId) {
-    return res.status(400).send('Faltan datos requeridos: chargeId, merchantId.');
-  }
-
-  const payload = {
-    chargeId: chargeId,
-  };
-
-  // El canal es específico para cada comercio.
-  const commerceChannel = `commerce-${merchantId}`;
-
-  console.log(`Disparando evento 'payment-authorized' al canal '${commerceChannel}' con payload:`, payload);
-  
-  // Disparar el evento usando Pusher
-  pusher.trigger(commerceChannel, 'payment-authorized', payload)
-    .then(() => {
-      res.status(200).send('Autorización de pago enviada al comercio.');
-    })
-    .catch(error => {
-      console.error('Error al disparar evento de Pusher:', error);
-      res.status(500).send('Error interno al procesar la autorización.');
-    });
+    const { chargeId, merchantId } = req.body;
+    const commerceChannel = `commerce-${merchantId}`;
+    const event = 'payment-authorized';
+    const payload = { chargeId };
+    
+    pusher.trigger(commerceChannel, event, payload)
+        .then(() => res.status(200).send('Autorización de pago enviada al comercio'))
+        .catch(error => {
+            console.error('Error enviando a Pusher:', error);
+            res.status(500).send('Error enviando la autorización');
+        });
 });
 
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Servidor corriendo en el puerto ${PORT}`));
 
-// Iniciar el servidor
-app.listen(PORT, () => {
-  console.log(`Servidor de Wepago corriendo en el puerto ${PORT}`);
-});
+// Export the app for Vercel
+module.exports = app;
 
